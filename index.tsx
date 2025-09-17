@@ -4,34 +4,48 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI, Modality, GenerateContentResponse } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 
 // IMPORTANT: The API key is sourced from the `process.env.API_KEY` environment variable.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// Main image upload
 const uploadButton = document.getElementById('upload-button') as HTMLButtonElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const imagePreviewContainer = document.getElementById('image-preview-container') as HTMLDivElement;
 const uploadPlaceholder = document.getElementById('upload-placeholder') as HTMLDivElement;
+
+// Object/Item image upload
+const objectUploadButton = document.getElementById('object-upload-button') as HTMLButtonElement;
+const objectFileInput = document.getElementById('object-file-input') as HTMLInputElement;
+const objectPreviewContainer = document.getElementById('object-preview-container') as HTMLDivElement;
+const objectUploadPlaceholder = document.getElementById('object-upload-placeholder') as HTMLDivElement;
+
+// Controls and results
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
 const generateButton = document.getElementById('generate-button') as HTMLButtonElement;
 const resultGallery = document.getElementById('result-gallery') as HTMLDivElement;
 const undoButton = document.getElementById('undo-button') as HTMLButtonElement;
 const redoButton = document.getElementById('redo-button') as HTMLButtonElement;
 
-// Video elements
-const videoGenerationSection = document.getElementById('video-generation-section') as HTMLDivElement;
-const videoPromptInput = document.getElementById('video-prompt-input') as HTMLTextAreaElement;
-const generateVideoButton = document.getElementById('generate-video-button') as HTMLButtonElement;
-const videoResultContainer = document.getElementById('video-result-container') as HTMLDivElement;
+// Image Preview Modal
+const imageModal = document.getElementById('image-modal') as HTMLDivElement;
+const modalImage = document.getElementById('modal-image') as HTMLImageElement;
+const modalCloseButton = imageModal.querySelector('.modal-close') as HTMLSpanElement;
+const modalActionsContainer = document.getElementById('modal-actions') as HTMLDivElement;
+const modalDimensions = document.getElementById('modal-dimensions') as HTMLParagraphElement;
+
 
 type ImageData = { mimeType: string; data: string; };
-type GeneratedImageData = ImageData & { url: string };
+type GeneratedImageData = ImageData & { url: string; width: number; height: number; };
 
 let currentImages: ImageData[] = [];
-let selectedGeneratedImage: GeneratedImageData | null = null;
+let objectImage: ImageData | null = null;
 let history: GeneratedImageData[][] = [[]];
 let historyIndex = 0;
+
+// A global flag to prevent multiple simultaneous AI actions.
+let isActionInProgress = false;
 
 function showLoading(container: HTMLElement, message: string) {
   container.innerHTML = `
@@ -60,80 +74,145 @@ function renderCurrentHistoryState() {
     if (currentResults.length === 0) {
         clearContainer(resultGallery, 'Kết quả sẽ được hiển thị ở đây.');
     } else {
-         currentResults.forEach(imageData => {
+         currentResults.forEach((imageData, index) => {
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
 
             const img = new Image();
             img.src = imageData.url;
             img.alt = promptInput.value;
-            img.addEventListener('click', () => selectImageForVideo(imageData, img));
+            img.addEventListener('click', () => openImagePreview(imageData, index));
             
+            const dimensionsText = document.createElement('p');
+            dimensionsText.className = 'image-dimensions';
+            dimensionsText.textContent = `${imageData.width} x ${imageData.height}`;
+
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'result-item-actions';
+
             const downloadButton = document.createElement('button');
             downloadButton.textContent = 'Tải xuống';
-            downloadButton.className = 'download-button';
             downloadButton.addEventListener('click', () => downloadImage(imageData));
+
+            const sharpenBtn = document.createElement('button');
+            sharpenBtn.textContent = 'Xóa mờ';
+            sharpenBtn.className = 'secondary-button';
+            sharpenBtn.addEventListener('click', () => sharpenImage(imageData, resultItem, index));
+
+            const resizeBtn = document.createElement('button');
+            resizeBtn.textContent = 'Sửa kích thước';
+            resizeBtn.className = 'tertiary-button';
+            resizeBtn.addEventListener('click', () => toggleResizeControls(imageData, resultItem, index));
+
+            actionsContainer.appendChild(downloadButton);
+            actionsContainer.appendChild(sharpenBtn);
+            actionsContainer.appendChild(resizeBtn);
             
             resultItem.appendChild(img);
-            resultItem.appendChild(downloadButton);
+            resultItem.appendChild(dimensionsText);
+            resultItem.appendChild(actionsContainer);
             resultGallery.appendChild(resultItem);
         });
     }
-
-    // Reset video section if no images are selected
-    videoGenerationSection.classList.add('hidden');
-    selectedGeneratedImage = null;
 
     updateHistoryButtons();
 }
 
 function addHistoryState(newImages: GeneratedImageData[]) {
-    // Truncate future history if we've undone
     history = history.slice(0, historyIndex + 1);
     history.push(newImages);
     historyIndex++;
     renderCurrentHistoryState();
 }
 
-// Trigger file input when upload button is clicked
-uploadButton.addEventListener('click', () => fileInput.click());
+// --- Image Preview Modal Functions ---
 
-// Handle file selection
+function openImagePreview(imageData: GeneratedImageData, index: number) {
+    if (isActionInProgress) return;
+    modalImage.src = imageData.url;
+    modalDimensions.textContent = `${imageData.width} x ${imageData.height}`;
+    modalActionsContainer.innerHTML = ''; // Clear previous actions
+
+    // 1. Download Button
+    const downloadButton = document.createElement('button');
+    downloadButton.textContent = 'Tải xuống';
+    downloadButton.addEventListener('click', () => downloadImage(imageData));
+
+    // 2. Sharpen Button
+    const sharpenBtn = document.createElement('button');
+    sharpenBtn.textContent = 'Xóa mờ';
+    sharpenBtn.className = 'secondary-button';
+    sharpenBtn.addEventListener('click', () => {
+        closeImagePreview();
+        const galleryItems = resultGallery.querySelectorAll('.result-item');
+        const itemToUpdate = galleryItems[index] as HTMLElement;
+        if (itemToUpdate) {
+            sharpenImage(imageData, itemToUpdate, index);
+        }
+    });
+
+    // 3. Resize Button
+    const resizeBtn = document.createElement('button');
+    resizeBtn.textContent = 'Sửa kích thước';
+    resizeBtn.className = 'tertiary-button';
+    resizeBtn.addEventListener('click', () => {
+        closeImagePreview();
+        const galleryItems = resultGallery.querySelectorAll('.result-item');
+        const itemToUpdate = galleryItems[index] as HTMLElement;
+        if (itemToUpdate) {
+            toggleResizeControls(imageData, itemToUpdate, index);
+        }
+    });
+
+    modalActionsContainer.appendChild(downloadButton);
+    modalActionsContainer.appendChild(sharpenBtn);
+    modalActionsContainer.appendChild(resizeBtn);
+
+    imageModal.classList.add('active');
+}
+
+function closeImagePreview() {
+    imageModal.classList.remove('active');
+    modalDimensions.textContent = '';
+}
+
+modalCloseButton.addEventListener('click', closeImagePreview);
+imageModal.addEventListener('click', (event) => {
+    // Close if the user clicks on the overlay itself, not the content inside
+    if (event.target === imageModal) {
+        closeImagePreview();
+    }
+});
+
+
+// --- Event Listeners for File Inputs ---
+
+uploadButton.addEventListener('click', () => fileInput.click());
+objectUploadButton.addEventListener('click', () => objectFileInput.click());
+
 fileInput.addEventListener('change', async (event) => {
   const target = event.target as HTMLInputElement;
   const files = target.files;
-
-  if (!files || files.length === 0) {
-    return;
-  }
+  if (!files || files.length === 0) return;
   
   generateButton.disabled = true;
   currentImages = [];
   imagePreviewContainer.innerHTML = '';
   uploadPlaceholder.classList.remove('hidden');
 
-  const filePromises = Array.from(files).map(file => {
-    return new Promise<{ file: File; base64Data: string }>((resolve, reject) => {
-        if (!file.type.startsWith('image/')) {
-            console.warn(`Skipping non-image file: ${file.name}`);
-            reject(new Error('Chỉ chấp nhận tệp hình ảnh.'));
-            return;
-        }
-
+  const filePromises = Array.from(files).map(file => 
+    new Promise<{ file: File; base64Data: string }>((resolve, reject) => {
+        if (!file.type.startsWith('image/')) return reject(new Error('Chỉ chấp nhận tệp hình ảnh.'));
         const reader = new FileReader();
         reader.onload = () => resolve({ file, base64Data: (reader.result as string).split(',')[1]});
         reader.onerror = (error) => reject(error);
         reader.readAsDataURL(file);
-    });
-  });
+    })
+  );
 
   try {
     const results = await Promise.all(filePromises);
-    
-    currentImages = results.map(result => ({
-      mimeType: result.file.type,
-      data: result.base64Data,
-    }));
+    currentImages = results.map(r => ({ mimeType: r.file.type, data: r.base64Data }));
     
     results.forEach(result => {
         const img = document.createElement('img');
@@ -148,7 +227,6 @@ fileInput.addEventListener('change', async (event) => {
         generateButton.disabled = false;
     }
     
-    // Reset history for new images
     history = [[]];
     historyIndex = 0;
     renderCurrentHistoryState();
@@ -161,26 +239,111 @@ fileInput.addEventListener('change', async (event) => {
   }
 });
 
-async function generateImage() {
-  if (currentImages.length === 0 || !promptInput.value) {
-    showError(resultGallery, 'Vui lòng tải lên ít nhất một ảnh và nhập chỉ dẫn.');
+objectFileInput.addEventListener('change', (event) => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        showError(objectPreviewContainer, 'Chỉ là ảnh.');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        objectImage = { mimeType: file.type, data: base64Data };
+
+        objectPreviewContainer.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = `data:${file.type};base64,${base64Data}`;
+        img.classList.add('preview-image');
+        img.alt = `Xem trước ${file.name}`;
+        objectPreviewContainer.appendChild(img);
+        objectUploadPlaceholder.classList.add('hidden');
+    };
+    reader.onerror = () => {
+        showError(objectPreviewContainer, 'Lỗi đọc tệp.');
+        objectImage = null;
+    };
+    reader.readAsDataURL(file);
+});
+
+// --- Helper Functions ---
+function getImageDimensions(url: string): Promise<{ width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        };
+        img.onerror = (err) => {
+            console.error("Could not load image to get dimensions:", err);
+            // Resolve with 0,0 so the app doesn't crash
+            resolve({ width: 0, height: 0 });
+        };
+        img.src = url;
+    });
+}
+
+
+// --- Core Image Processing Functions ---
+
+/**
+ * A wrapper function to retry an async function on transient server errors.
+ * @param fn The async function to execute.
+ * @param maxRetries The maximum number of retries.
+ * @param initialDelay The initial delay in ms, which doubles on each retry.
+ * @returns The result of the async function.
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> {
+  let attempt = 0;
+  let delay = initialDelay;
+
+  while (attempt < maxRetries) {
+    try {
+      return await fn(); // Attempt the function
+    } catch (error) {
+      attempt++;
+      const errorMessage = (error as Error).message.toLowerCase();
+      // Check for 5xx server errors, which are often transient.
+      const isServerError = errorMessage.includes('status: 50') || errorMessage.includes('internal error');
+
+      if (isServerError && attempt < maxRetries) {
+        console.warn(`Attempt ${attempt} failed with a server error. Retrying in ${delay}ms...`, error);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+      } else {
+        // If it's not a server error, or we've run out of retries, re-throw the original error.
+        throw error;
+      }
+    }
+  }
+  // This line should be theoretically unreachable but is required by TypeScript.
+  throw new Error("Retry mechanism failed unexpectedly.");
+}
+
+
+async function processImages(prompt: string) {
+  if (isActionInProgress) return;
+  isActionInProgress = true;
+
+  if (currentImages.length === 0) {
+    showError(resultGallery, 'Vui lòng tải lên ít nhất một ảnh.');
+    isActionInProgress = false;
     return;
   }
 
   generateButton.disabled = true;
   undoButton.disabled = true;
   redoButton.disabled = true;
-  generateVideoButton.disabled = true;
-  videoGenerationSection.classList.add('hidden');
   clearContainer(resultGallery);
-  clearContainer(videoResultContainer);
-  selectedGeneratedImage = null;
   
   const statusMessage = document.createElement('p');
   statusMessage.className = 'info-message';
   resultGallery.appendChild(statusMessage);
 
   const generatedImages: GeneratedImageData[] = [];
+  const qualityInstruction = "Hãy chắc chắn rằng hình ảnh cuối cùng có chất lượng cao, siêu chi tiết, và sắc nét, với độ phân giải gần 2K (ví dụ: 1440x2560 cho ảnh dọc 9:16).";
+  const finalPrompt = `${prompt} ${qualityInstruction}`;
 
   try {
     for (let i = 0; i < currentImages.length; i++) {
@@ -188,120 +351,134 @@ async function generateImage() {
       statusMessage.textContent = `Đang xử lý ảnh ${i + 1} trên ${currentImages.length}...`;
       
       try {
-        const imagePart = { inlineData: { mimeType: image.mimeType, data: image.data } };
-        const textPart = { text: promptInput.value };
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
-            contents: { parts: [imagePart, textPart] },
-            config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-        });
+        const parts: ( {text: string} | {inlineData: {mimeType: string, data: string}} )[] = [
+            { inlineData: { mimeType: image.mimeType, data: image.data } }
+        ];
+        if (objectImage) {
+            parts.push({ inlineData: { mimeType: objectImage.mimeType, data: objectImage.data } });
+        }
+        parts.push({ text: finalPrompt });
 
-        const imagePartResponse = response.candidates[0]?.content?.parts?.find(p => p.inlineData);
-        if (imagePartResponse && imagePartResponse.inlineData) {
+        const response = await withRetry(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview',
+            contents: { parts: parts },
+            config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+        }));
+
+        if (response.promptFeedback?.blockReason) {
+            console.error(`Prompt was blocked for image ${i + 1}:`, response.promptFeedback);
+            continue; 
+        }
+
+        const candidate = response.candidates?.[0];
+        if (!candidate) {
+            console.error(`No candidates returned for image ${i + 1}:`, response);
+            continue;
+        }
+        
+        const imagePartResponse = candidate.content?.parts?.find(p => p.inlineData);
+
+        if (imagePartResponse?.inlineData) {
+            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
+            const { width, height } = await getImageDimensions(url);
             const imageData: GeneratedImageData = {
                 mimeType: imagePartResponse.inlineData.mimeType,
                 data: imagePartResponse.inlineData.data,
-                url: `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`,
+                url,
+                width,
+                height,
             };
             generatedImages.push(imageData);
         } else {
-             console.error(`No image content returned for image ${i + 1}.`);
+             console.error(`No image content returned for image ${i + 1}. Full candidate:`, candidate);
         }
       } catch (innerError) {
-          console.error(`Error generating image ${i + 1}:`, innerError);
+          console.error(`Error generating image ${i + 1} after retries:`, innerError);
       }
     }
 
     if (generatedImages.length > 0) {
         addHistoryState(generatedImages);
     } else {
-        showError(resultGallery, 'Không thể tạo bất kỳ hình ảnh nào. Mô hình có thể không trả về hình ảnh cho chỉ dẫn này.');
+        showError(resultGallery, 'Không thể tạo bất kỳ hình ảnh nào. Mô hình có thể không trả về hình ảnh cho chỉ dẫn này hoặc yêu cầu đã bị chặn.');
+        renderCurrentHistoryState(); // show previous state if generation fails
     }
-
   } catch (error) {
     console.error("Error in image generation loop:", error);
     showError(resultGallery, 'Đã xảy ra lỗi không mong muốn. Vui lòng kiểm tra console.');
   } finally {
     generateButton.disabled = false;
-    updateHistoryButtons(); // Re-enable undo/redo if applicable
+    updateHistoryButtons();
+    isActionInProgress = false;
   }
 }
 
-function selectImageForVideo(imageData: GeneratedImageData, imgElement: HTMLImageElement) {
-    document.querySelectorAll('#result-gallery .result-item img').forEach(img => {
-        img.classList.remove('selected');
-    });
-    
-    imgElement.classList.add('selected');
-    selectedGeneratedImage = imageData;
-
-    videoGenerationSection.classList.remove('hidden');
-    generateVideoButton.disabled = false;
-    clearContainer(videoResultContainer);
-}
-
-async function generateVideo() {
-    if (!selectedGeneratedImage || !videoPromptInput.value) {
-        showError(videoResultContainer, 'Vui lòng chọn một ảnh và nhập chỉ dẫn cho video trước.');
-        return;
-    }
+async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElement: HTMLElement, imageIndex: number) {
+    if (isActionInProgress) return;
+    isActionInProgress = true;
 
     generateButton.disabled = true;
-    generateVideoButton.disabled = true;
     undoButton.disabled = true;
     redoButton.disabled = true;
-    showLoading(videoResultContainer, 'Đang tạo video... Quá trình này có thể mất vài phút.');
+    
+    const originalContent = resultItemElement.innerHTML;
+    showLoading(resultItemElement, "Đang làm nét...");
 
     try {
-        let operation = await ai.models.generateVideos({
-            model: 'veo-2.0-generate-001',
-            prompt: videoPromptInput.value,
-            image: {
-                imageBytes: selectedGeneratedImage.data,
-                mimeType: selectedGeneratedImage.mimeType,
-            },
-            config: { numberOfVideos: 1 }
-        });
-
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 10000));
-            operation = await ai.operations.getVideosOperation({ operation: operation });
-        }
-
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) {
-            throw new Error('Không tìm thấy URI video trong phản hồi.');
-        }
-
-        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-        if (!response.ok) {
-            throw new Error(`Lỗi khi tải video: ${response.statusText}`);
-        }
+        const sharpenPrompt = "Xóa mờ, tăng độ nét, làm rõ các chi tiết và nâng cấp lên độ phân giải cao, chất lượng 2K.";
+        const imagePart = { inlineData: { mimeType: imageToSharpen.mimeType, data: imageToSharpen.data } };
+        const textPart = { text: sharpenPrompt };
         
-        const videoBlob = await response.blob();
-        const videoUrl = URL.createObjectURL(videoBlob);
+        const response = await withRetry(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview',
+            contents: { parts: [imagePart, textPart] },
+            config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+        }));
 
-        clearContainer(videoResultContainer);
-        
-        const videoElement = document.createElement('video');
-        videoElement.src = videoUrl;
-        videoElement.controls = true;
-        videoResultContainer.appendChild(videoElement);
+        if (response.promptFeedback?.blockReason) {
+            console.error("Prompt was blocked during sharpening:", response.promptFeedback);
+            throw new Error(`Yêu cầu làm nét ảnh đã bị chặn: ${response.promptFeedback.blockReason}`);
+        }
 
-        const videoDownloadLink = document.createElement('a');
-        videoDownloadLink.href = videoUrl;
-        videoDownloadLink.textContent = 'Tải xuống video';
-        videoDownloadLink.download = 'generated-video.mp4';
-        videoDownloadLink.className = 'button';
-        videoResultContainer.appendChild(videoDownloadLink);
+        const candidate = response.candidates?.[0];
+        if (!candidate) {
+            console.error("No candidates returned from the model during sharpening:", response);
+            throw new Error("Mô hình không trả về kết quả hợp lệ khi làm nét.");
+        }
 
+        const imagePartResponse = candidate.content?.parts?.find(p => p.inlineData);
+        if (imagePartResponse?.inlineData) {
+            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
+            const { width, height } = await getImageDimensions(url);
+            const newImageData: GeneratedImageData = {
+                mimeType: imagePartResponse.inlineData.mimeType,
+                data: imagePartResponse.inlineData.data,
+                url,
+                width,
+                height,
+            };
+            // Create a new history state with the updated image
+            const newHistoryState = [...history[historyIndex]];
+            newHistoryState[imageIndex] = newImageData;
+            addHistoryState(newHistoryState);
+        } else {
+            const textPartResponse = candidate.content?.parts?.find(p => p.text);
+            console.error("Model did not return a sharpened image. Full response candidate:", candidate);
+            if (textPartResponse) {
+                console.error("Model text response:", textPartResponse.text);
+                throw new Error(`Mô hình không trả về ảnh. Phản hồi văn bản: "${textPartResponse.text}"`);
+            } else {
+                throw new Error("Mô hình không trả về ảnh được làm nét.");
+            }
+        }
     } catch (error) {
-        console.error("Error generating video:", error);
-        showError(videoResultContainer, 'Không thể tạo video. Vui lòng kiểm tra console để biết chi tiết.');
+        console.error("Error sharpening image:", error);
+        resultItemElement.innerHTML = originalContent; // Restore original content
+        alert(`Không thể làm nét ảnh sau nhiều lần thử: ${error.message}`);
     } finally {
         generateButton.disabled = false;
-        generateVideoButton.disabled = false;
         updateHistoryButtons();
+        isActionInProgress = false;
     }
 }
 
@@ -309,11 +486,165 @@ function downloadImage(imageData: GeneratedImageData) {
     const link = document.createElement('a');
     link.href = imageData.url;
     const extension = imageData.mimeType.split('/')[1] || 'png';
-    link.download = `generated-image.${extension}`;
+    
+    const randomId = Math.floor(10000 + Math.random() * 90000);
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD
+    link.download = `${randomId}_${today}.${extension}`;
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 }
+
+// --- Inline Resize Functions ---
+
+const ASPECT_RATIOS: { [key: string]: { w: number, h: number } } = {
+    '16:9': { w: 1920, h: 1080 },
+    '9:16': { w: 1080, h: 1920 },
+    '4:3': { w: 1920, h: 1440 },
+    '3:4': { w: 1440, h: 1920 },
+    '1:1': { w: 1536, h: 1536 },
+};
+
+function toggleResizeControls(imageData: GeneratedImageData, resultItemElement: HTMLElement, index: number) {
+    if (isActionInProgress) return;
+
+    const existingControls = resultItemElement.querySelector('.inline-resize-controls');
+    document.querySelectorAll('.inline-resize-controls').forEach(el => el.remove());
+
+    if (existingControls) {
+        return; // It was already open, and we just closed it.
+    }
+
+    const controlsContainer = document.createElement('div');
+    controlsContainer.className = 'inline-resize-controls';
+    controlsContainer.innerHTML = `
+        <label for="aspect-ratio-select-${index}">Tỷ lệ:</label>
+        <select id="aspect-ratio-select-${index}">
+            <option value="16:9">16:9 (Ngang)</option>
+            <option value="9:16">9:16 (Dọc)</option>
+            <option value="4:3">4:3 (Ngang)</option>
+            <option value="3:4">3:4 (Dọc)</option>
+            <option value="1:1">1:1 (Vuông)</option>
+            <option value="custom">Tùy chỉnh theo px</option>
+        </select>
+        <div class="inline-custom-dimensions">
+            <div>
+              <label for="custom-width-${index}">Rộng:</label>
+              <input type="number" id="custom-width-${index}" placeholder="1920">
+            </div>
+            <div>
+              <label for="custom-height-${index}">Cao:</label>
+              <input type="number" id="custom-height-${index}" placeholder="1080">
+            </div>
+        </div>
+        <div class="inline-resize-actions">
+             <button id="resize-cancel-btn-${index}" class="tertiary-button">Hủy</button>
+             <button id="resize-confirm-btn-${index}">Xác nhận</button>
+        </div>
+    `;
+    
+    resultItemElement.appendChild(controlsContainer);
+
+    const aspectRatioSelect = document.getElementById(`aspect-ratio-select-${index}`) as HTMLSelectElement;
+    const customWidthInput = document.getElementById(`custom-width-${index}`) as HTMLInputElement;
+    const customHeightInput = document.getElementById(`custom-height-${index}`) as HTMLInputElement;
+    const confirmButton = document.getElementById(`resize-confirm-btn-${index}`) as HTMLButtonElement;
+    const cancelButton = document.getElementById(`resize-cancel-btn-${index}`) as HTMLButtonElement;
+
+    const updateInputsFromRatio = () => {
+        const ratio = aspectRatioSelect.value;
+        if (ratio !== 'custom') {
+            customWidthInput.value = ASPECT_RATIOS[ratio].w.toString();
+            customHeightInput.value = ASPECT_RATIOS[ratio].h.toString();
+        }
+    };
+    
+    aspectRatioSelect.addEventListener('change', updateInputsFromRatio);
+    customWidthInput.addEventListener('input', () => aspectRatioSelect.value = 'custom');
+    customHeightInput.addEventListener('input', () => aspectRatioSelect.value = 'custom');
+
+    cancelButton.addEventListener('click', () => controlsContainer.remove());
+    confirmButton.addEventListener('click', async () => {
+        let resizePrompt: string;
+        const ratio = aspectRatioSelect.value;
+        const qualityInstruction = "Hãy chắc chắn rằng hình ảnh cuối cùng có chất lượng cao, siêu chi tiết, và sắc nét, với độ phân giải gần 2K.";
+
+        if (ratio === 'custom') {
+            const w = customWidthInput.value;
+            const h = customHeightInput.value;
+            if (!w || !h || parseInt(w) <= 0 || parseInt(h) <= 0) {
+                alert('Vui lòng nhập chiều rộng và chiều cao hợp lệ.');
+                return;
+            }
+            resizePrompt = `Mở rộng hoặc cắt ảnh để có kích thước chính xác là ${w} x ${h} pixels. Vẽ thêm chi tiết một cách tự nhiên vào các vùng được mở rộng nếu cần. ${qualityInstruction}`;
+        } else {
+            resizePrompt = `Mở rộng hoặc cắt ảnh để có tỷ lệ khung hình chính xác là ${ratio}. Vẽ thêm chi tiết một cách tự nhiên vào các vùng được mở rộng nếu cần. ${qualityInstruction}`;
+        }
+        await performResize(imageData, resultItemElement, index, resizePrompt);
+    });
+    
+    // Set initial values
+    updateInputsFromRatio();
+}
+
+
+async function performResize(imageData: GeneratedImageData, element: HTMLElement, index: number, resizePrompt: string) {
+    if (isActionInProgress) return;
+    isActionInProgress = true;
+    
+    generateButton.disabled = true;
+    undoButton.disabled = true;
+    redoButton.disabled = true;
+    
+    const originalContent = element.innerHTML;
+    showLoading(element, "Đang sửa kích thước...");
+
+    try {
+        const imagePart = { inlineData: { mimeType: imageData.mimeType, data: imageData.data } };
+        const textPart = { text: resizePrompt };
+
+        const response = await withRetry(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview',
+            contents: { parts: [imagePart, textPart] },
+            config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+        }));
+
+        if (response.promptFeedback?.blockReason) {
+             throw new Error(`Yêu cầu sửa kích thước đã bị chặn: ${response.promptFeedback.blockReason}`);
+        }
+        const candidate = response.candidates?.[0];
+        const imagePartResponse = candidate?.content?.parts?.find(p => p.inlineData);
+
+        if (imagePartResponse?.inlineData) {
+            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
+            const { width, height } = await getImageDimensions(url);
+            const newImageData: GeneratedImageData = {
+                mimeType: imagePartResponse.inlineData.mimeType,
+                data: imagePartResponse.inlineData.data,
+                url,
+                width,
+                height,
+            };
+            const newHistoryState = [...history[historyIndex]];
+            newHistoryState[index] = newImageData;
+            addHistoryState(newHistoryState);
+        } else {
+            throw new Error("Mô hình không trả về ảnh sau khi sửa kích thước.");
+        }
+    } catch (error) {
+        console.error("Error resizing image:", error);
+        element.innerHTML = originalContent; // Restore
+        alert(`Không thể sửa kích thước ảnh sau nhiều lần thử: ${error.message}`);
+    } finally {
+        isActionInProgress = false;
+        generateButton.disabled = false;
+        updateHistoryButtons();
+    }
+}
+
+
+// --- History and General Event Listeners ---
 
 function handleUndo() {
     if (historyIndex > 0) {
@@ -329,8 +660,13 @@ function handleRedo() {
     }
 }
 
-generateButton.addEventListener('click', generateImage);
-generateVideoButton.addEventListener('click', generateVideo);
+generateButton.addEventListener('click', async () => {
+    if (!promptInput.value) {
+        showError(resultGallery, 'Vui lòng nhập chỉ dẫn.');
+        return;
+    }
+    await processImages(promptInput.value);
+});
 undoButton.addEventListener('click', handleUndo);
 redoButton.addEventListener('click', handleRedo);
 

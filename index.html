@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trình chỉnh sửa ảnh và video AI</title>
+    <title>Trình chỉnh sửa ảnh AI</title>
     <link rel="stylesheet" href="index.css">
     <script type="importmap">
       {
@@ -15,12 +15,12 @@
 </head>
 <body>
     <header>
-      <h1>Trình chỉnh sửa ảnh và video AI</h1>
-      <p>Tải ảnh lên, chỉnh sửa bằng AI, sau đó tạo video từ kết quả.</p>
+      <h1>Trình chỉnh sửa ảnh AI</h1>
+      <p>Tải ảnh lên, thêm trang phục hoặc đồ vật, và chỉnh sửa bằng sức mạnh của AI.</p>
     </header>
     <main class="main-container">
         <div class="controls">
-            <h2>1. Tải ảnh của bạn</h2>
+            <h2>1. Tải ảnh gốc</h2>
             <div id="upload-box">
                 <div id="image-preview-container"></div>
                 <div id="upload-placeholder">
@@ -28,12 +28,25 @@
                 </div>
             </div>
             <input type="file" id="file-input" accept="image/*" hidden multiple>
-            <button id="upload-button">Chọn ảnh</button>
+            <button id="upload-button">Chọn ảnh gốc</button>
 
-            <h2>2. Mô tả thay đổi</h2>
-            <textarea id="prompt-input" placeholder="Ví dụ: thêm một con mèo vào ảnh, hoặc thay đổi nền thành bãi biển vào ban đêm...">Mở rộng ảnh này thành khung hình 9:16.</textarea>
+            <h2>2. Thêm trang phục/đồ vật (Tùy chọn)</h2>
+            <div id="object-upload-box" class="upload-box-single">
+                <div id="object-preview-container"></div>
+                <div id="object-upload-placeholder">
+                    <p>Tải lên 1 ảnh trang phục/đồ vật</p>
+                </div>
+            </div>
+            <input type="file" id="object-file-input" accept="image/*" hidden>
+            <button id="object-upload-button">Chọn ảnh đồ vật</button>
+
+
+            <h2>3. Mô tả thay đổi</h2>
+            <textarea id="prompt-input" placeholder="Ví dụ: thay thế áo của người trong ảnh bằng trang phục đã tải lên ở trên.">Mở rộng ảnh này thành khung hình 9:16.</textarea>
             
-            <button id="generate-button" disabled>Tạo ảnh</button>
+            <div class="action-buttons">
+                <button id="generate-button" disabled>Tạo ảnh</button>
+            </div>
             <div class="history-controls">
                 <button id="undo-button" disabled>Hoàn tác</button>
                 <button id="redo-button" disabled>Làm lại</button>
@@ -44,18 +57,20 @@
             <div id="result-gallery">
                 <p class="info-message">Kết quả sẽ được hiển thị ở đây.</p>
             </div>
-            
-            <div id="video-generation-section" class="hidden">
-                <h2>3. Tạo video từ ảnh đã chọn</h2>
-                <textarea id="video-prompt-input" placeholder="Ví dụ: tạo hiệu ứng zoom chậm, làm cho các đám mây di chuyển..."></textarea>
-                <button id="generate-video-button">Tạo video với Veo</button>
-            </div>
-
-            <div id="video-result-container">
-                <!-- Video result will be inserted here -->
-            </div>
         </div>
     </main>
+
+    <!-- Image Preview Modal -->
+    <div id="image-modal" class="modal-overlay">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <img id="modal-image" src="" alt="Xem trước ảnh kích thước đầy đủ">
+            <p id="modal-dimensions" class="image-dimensions"></p>
+            <div id="modal-actions" class="modal-actions-container"></div>
+        </div>
+    </div>
+
+
     <script type="module" src="index.tsx"></script>
 </body>
 </html>
