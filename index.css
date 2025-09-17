@@ -120,6 +120,21 @@ button:disabled {
     cursor: not-allowed;
 }
 
+.history-controls {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.history-controls button {
+    background-color: #333;
+    color: #e0e0e0;
+}
+
+.history-controls button:hover:not(:disabled) {
+    background-color: #444;
+}
+
 .download-button {
     background-color: #03dac6;
     color: #121212;

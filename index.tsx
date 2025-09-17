@@ -16,6 +16,8 @@ const uploadPlaceholder = document.getElementById('upload-placeholder') as HTMLD
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
 const generateButton = document.getElementById('generate-button') as HTMLButtonElement;
 const resultGallery = document.getElementById('result-gallery') as HTMLDivElement;
+const undoButton = document.getElementById('undo-button') as HTMLButtonElement;
+const redoButton = document.getElementById('redo-button') as HTMLButtonElement;
 
 // Video elements
 const videoGenerationSection = document.getElementById('video-generation-section') as HTMLDivElement;
@@ -28,6 +30,8 @@ type GeneratedImageData = ImageData & { url: string };
 
 let currentImages: ImageData[] = [];
 let selectedGeneratedImage: GeneratedImageData | null = null;
+let history: GeneratedImageData[][] = [[]];
+let historyIndex = 0;
 
 function showLoading(container: HTMLElement, message: string) {
   container.innerHTML = `
@@ -42,6 +46,53 @@ function showError(container: HTMLElement, message: string) {
 
 function clearContainer(container: HTMLElement, message?: string) {
     container.innerHTML = message ? `<p class="info-message">${message}</p>` : '';
+}
+
+function updateHistoryButtons() {
+    undoButton.disabled = historyIndex <= 0;
+    redoButton.disabled = historyIndex >= history.length - 1;
+}
+
+function renderCurrentHistoryState() {
+    const currentResults = history[historyIndex];
+    clearContainer(resultGallery);
+    
+    if (currentResults.length === 0) {
+        clearContainer(resultGallery, 'Kết quả sẽ được hiển thị ở đây.');
+    } else {
+         currentResults.forEach(imageData => {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+
+            const img = new Image();
+            img.src = imageData.url;
+            img.alt = promptInput.value;
+            img.addEventListener('click', () => selectImageForVideo(imageData, img));
+            
+            const downloadButton = document.createElement('button');
+            downloadButton.textContent = 'Tải xuống';
+            downloadButton.className = 'download-button';
+            downloadButton.addEventListener('click', () => downloadImage(imageData));
+            
+            resultItem.appendChild(img);
+            resultItem.appendChild(downloadButton);
+            resultGallery.appendChild(resultItem);
+        });
+    }
+
+    // Reset video section if no images are selected
+    videoGenerationSection.classList.add('hidden');
+    selectedGeneratedImage = null;
+
+    updateHistoryButtons();
+}
+
+function addHistoryState(newImages: GeneratedImageData[]) {
+    // Truncate future history if we've undone
+    history = history.slice(0, historyIndex + 1);
+    history.push(newImages);
+    historyIndex++;
+    renderCurrentHistoryState();
 }
 
 // Trigger file input when upload button is clicked
@@ -97,8 +148,10 @@ fileInput.addEventListener('change', async (event) => {
         generateButton.disabled = false;
     }
     
-    clearContainer(resultGallery, 'Kết quả sẽ được hiển thị ở đây.');
-    videoGenerationSection.classList.add('hidden');
+    // Reset history for new images
+    history = [[]];
+    historyIndex = 0;
+    renderCurrentHistoryState();
 
   } catch (error) {
       console.error('Error reading files:', error);
@@ -115,6 +168,8 @@ async function generateImage() {
   }
 
   generateButton.disabled = true;
+  undoButton.disabled = true;
+  redoButton.disabled = true;
   generateVideoButton.disabled = true;
   videoGenerationSection.classList.add('hidden');
   clearContainer(resultGallery);
@@ -123,13 +178,11 @@ async function generateImage() {
   
   const statusMessage = document.createElement('p');
   statusMessage.className = 'info-message';
-  statusMessage.style.gridColumn = '1 / -1'; // Make it span the grid
   resultGallery.appendChild(statusMessage);
 
   const generatedImages: GeneratedImageData[] = [];
 
   try {
-    // Process images sequentially to avoid rate limiting (429 errors).
     for (let i = 0; i < currentImages.length; i++) {
       const image = currentImages[i];
       statusMessage.textContent = `Đang xử lý ảnh ${i + 1} trên ${currentImages.length}...`;
@@ -145,73 +198,43 @@ async function generateImage() {
 
         const imagePartResponse = response.candidates[0]?.content?.parts?.find(p => p.inlineData);
         if (imagePartResponse && imagePartResponse.inlineData) {
-            const base64ImageBytes: string = imagePartResponse.inlineData.data;
-            const mimeType = imagePartResponse.inlineData.mimeType;
-            const imageUrl = `data:${mimeType};base64,${base64ImageBytes}`;
-            
             const imageData: GeneratedImageData = {
-                mimeType,
-                data: base64ImageBytes,
-                url: imageUrl,
+                mimeType: imagePartResponse.inlineData.mimeType,
+                data: imagePartResponse.inlineData.data,
+                url: `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`,
             };
             generatedImages.push(imageData);
-            
-            const resultItem = document.createElement('div');
-            resultItem.className = 'result-item';
-
-            const img = new Image();
-            img.src = imageUrl;
-            img.alt = promptInput.value;
-            img.addEventListener('click', () => selectImageForVideo(imageData, img));
-            
-            const downloadButton = document.createElement('button');
-            downloadButton.textContent = 'Tải xuống';
-            downloadButton.className = 'download-button';
-            downloadButton.addEventListener('click', () => downloadImage(imageData));
-            
-            resultItem.appendChild(img);
-            resultItem.appendChild(downloadButton);
-            resultGallery.appendChild(resultItem);
         } else {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'result-item';
-            showError(errorDiv, `Lỗi ảnh ${i + 1}`);
-            resultGallery.appendChild(errorDiv);
+             console.error(`No image content returned for image ${i + 1}.`);
         }
       } catch (innerError) {
           console.error(`Error generating image ${i + 1}:`, innerError);
-          const errorDiv = document.createElement('div');
-          errorDiv.className = 'result-item';
-          showError(errorDiv, `Lỗi ảnh ${i + 1}`);
-          resultGallery.appendChild(errorDiv);
       }
     }
 
-    statusMessage.remove(); // Clean up the status message
-
-    if (generatedImages.length === 0) {
+    if (generatedImages.length > 0) {
+        addHistoryState(generatedImages);
+    } else {
         showError(resultGallery, 'Không thể tạo bất kỳ hình ảnh nào. Mô hình có thể không trả về hình ảnh cho chỉ dẫn này.');
     }
 
-  } catch (error) { // This outer catch is for logic errors, not API calls
+  } catch (error) {
     console.error("Error in image generation loop:", error);
     showError(resultGallery, 'Đã xảy ra lỗi không mong muốn. Vui lòng kiểm tra console.');
   } finally {
     generateButton.disabled = false;
+    updateHistoryButtons(); // Re-enable undo/redo if applicable
   }
 }
 
 function selectImageForVideo(imageData: GeneratedImageData, imgElement: HTMLImageElement) {
-    // Clear previous selection
     document.querySelectorAll('#result-gallery .result-item img').forEach(img => {
         img.classList.remove('selected');
     });
     
-    // Set new selection
     imgElement.classList.add('selected');
     selectedGeneratedImage = imageData;
 
-    // Show video section
     videoGenerationSection.classList.remove('hidden');
     generateVideoButton.disabled = false;
     clearContainer(videoResultContainer);
@@ -225,6 +248,8 @@ async function generateVideo() {
 
     generateButton.disabled = true;
     generateVideoButton.disabled = true;
+    undoButton.disabled = true;
+    redoButton.disabled = true;
     showLoading(videoResultContainer, 'Đang tạo video... Quá trình này có thể mất vài phút.');
 
     try {
@@ -276,6 +301,7 @@ async function generateVideo() {
     } finally {
         generateButton.disabled = false;
         generateVideoButton.disabled = false;
+        updateHistoryButtons();
     }
 }
 
@@ -289,5 +315,24 @@ function downloadImage(imageData: GeneratedImageData) {
     document.body.removeChild(link);
 }
 
+function handleUndo() {
+    if (historyIndex > 0) {
+        historyIndex--;
+        renderCurrentHistoryState();
+    }
+}
+
+function handleRedo() {
+    if (historyIndex < history.length - 1) {
+        historyIndex++;
+        renderCurrentHistoryState();
+    }
+}
+
 generateButton.addEventListener('click', generateImage);
 generateVideoButton.addEventListener('click', generateVideo);
+undoButton.addEventListener('click', handleUndo);
+redoButton.addEventListener('click', handleRedo);
+
+// Initialize with default state
+renderCurrentHistoryState();
