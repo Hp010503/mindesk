@@ -6,8 +6,9 @@
 
 import { GoogleGenAI, Modality } from '@google/genai';
 
-// IMPORTANT: The API key is sourced from the `process.env.API_KEY` environment variable.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI;
+
+// --- DOM Elements ---
 
 // Main image upload
 const uploadButton = document.getElementById('upload-button') as HTMLButtonElement;
@@ -28,6 +29,11 @@ const resultGallery = document.getElementById('result-gallery') as HTMLDivElemen
 const undoButton = document.getElementById('undo-button') as HTMLButtonElement;
 const redoButton = document.getElementById('redo-button') as HTMLButtonElement;
 
+// API Key management
+const apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
+const saveApiKeyButton = document.getElementById('save-api-key-button') as HTMLButtonElement;
+const DEFAULT_API_KEY = "AIzaSyDb12dmxIo09j7ht5UCiMl9WH8AMQATlLM";
+
 // Image Preview Modal
 const imageModal = document.getElementById('image-modal') as HTMLDivElement;
 const modalImage = document.getElementById('modal-image') as HTMLImageElement;
@@ -35,6 +41,7 @@ const modalCloseButton = imageModal.querySelector('.modal-close') as HTMLSpanEle
 const modalActionsContainer = document.getElementById('modal-actions') as HTMLDivElement;
 const modalDimensions = document.getElementById('modal-dimensions') as HTMLParagraphElement;
 
+// --- State Variables ---
 
 type ImageData = { mimeType: string; data: string; };
 type GeneratedImageData = ImageData & { url: string; width: number; height: number; };
@@ -43,9 +50,31 @@ let currentImages: ImageData[] = [];
 let objectImage: ImageData | null = null;
 let history: GeneratedImageData[][] = [[]];
 let historyIndex = 0;
+let isActionInProgress = false; // Global action lock
 
-// A global flag to prevent multiple simultaneous AI actions.
-let isActionInProgress = false;
+// --- API Key Handling ---
+
+function initializeAndSaveApiKey(key: string) {
+    if (!key) {
+        alert("Khóa API không được để trống.");
+        return;
+    }
+    ai = new GoogleGenAI({ apiKey: key });
+    localStorage.setItem('gemini-api-key', key);
+    apiKeyInput.value = key;
+    // Optional: Add a small visual confirmation
+    const originalButtonText = saveApiKeyButton.textContent;
+    saveApiKeyButton.textContent = 'Đã lưu!';
+    setTimeout(() => {
+        saveApiKeyButton.textContent = originalButtonText;
+    }, 2000);
+}
+
+saveApiKeyButton.addEventListener('click', () => {
+    initializeAndSaveApiKey(apiKeyInput.value.trim());
+});
+
+// --- UI Helper Functions ---
 
 function showLoading(container: HTMLElement, message: string) {
   container.innerHTML = `
@@ -66,6 +95,8 @@ function updateHistoryButtons() {
     undoButton.disabled = historyIndex <= 0;
     redoButton.disabled = historyIndex >= history.length - 1;
 }
+
+// --- Rendering and History ---
 
 function renderCurrentHistoryState() {
     const currentResults = history[historyIndex];
@@ -287,13 +318,6 @@ function getImageDimensions(url: string): Promise<{ width: number; height: numbe
 
 // --- Core Image Processing Functions ---
 
-/**
- * A wrapper function to retry an async function on transient server errors.
- * @param fn The async function to execute.
- * @param maxRetries The maximum number of retries.
- * @param initialDelay The initial delay in ms, which doubles on each retry.
- * @returns The result of the async function.
- */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> {
   let attempt = 0;
   let delay = initialDelay;
@@ -304,7 +328,6 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay =
     } catch (error) {
       attempt++;
       const errorMessage = (error as Error).message.toLowerCase();
-      // Check for 5xx server errors, which are often transient.
       const isServerError = errorMessage.includes('status: 50') || errorMessage.includes('internal error');
 
       if (isServerError && attempt < maxRetries) {
@@ -312,12 +335,10 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay =
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2; // Exponential backoff
       } else {
-        // If it's not a server error, or we've run out of retries, re-throw the original error.
         throw error;
       }
     }
   }
-  // This line should be theoretically unreachable but is required by TypeScript.
   throw new Error("Retry mechanism failed unexpectedly.");
 }
 
@@ -328,6 +349,11 @@ async function processImages(prompt: string) {
 
   if (currentImages.length === 0) {
     showError(resultGallery, 'Vui lòng tải lên ít nhất một ảnh.');
+    isActionInProgress = false;
+    return;
+  }
+  if (!ai) {
+    showError(resultGallery, 'Khóa API chưa được khởi tạo. Vui lòng nhập và lưu khóa.');
     isActionInProgress = false;
     return;
   }
@@ -425,7 +451,7 @@ async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElemen
     showLoading(resultItemElement, "Đang làm nét...");
 
     try {
-        const sharpenPrompt = "Xóa mờ, tăng độ nét, làm rõ các chi tiết và nâng cấp lên độ phân giải cao, chất lượng 2K.";
+        const sharpenPrompt = "Xóa mờ, tăng độ nét, làm rõ các chi tiết và nâng cấp lên độ phân giải cao. Hãy chắc chắn rằng hình ảnh cuối cùng có chất lượng cao, siêu chi tiết, và sắc nét, với độ phân giải gần 2K.";
         const imagePart = { inlineData: { mimeType: imageToSharpen.mimeType, data: imageToSharpen.data } };
         const textPart = { text: sharpenPrompt };
         
@@ -457,7 +483,6 @@ async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElemen
                 width,
                 height,
             };
-            // Create a new history state with the updated image
             const newHistoryState = [...history[historyIndex]];
             newHistoryState[imageIndex] = newImageData;
             addHistoryState(newHistoryState);
@@ -473,7 +498,7 @@ async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElemen
         }
     } catch (error) {
         console.error("Error sharpening image:", error);
-        resultItemElement.innerHTML = originalContent; // Restore original content
+        resultItemElement.innerHTML = originalContent;
         alert(`Không thể làm nét ảnh sau nhiều lần thử: ${error.message}`);
     } finally {
         generateButton.disabled = false;
@@ -584,7 +609,6 @@ function toggleResizeControls(imageData: GeneratedImageData, resultItemElement: 
         await performResize(imageData, resultItemElement, index, resizePrompt);
     });
     
-    // Set initial values
     updateInputsFromRatio();
 }
 
@@ -670,5 +694,11 @@ generateButton.addEventListener('click', async () => {
 undoButton.addEventListener('click', handleUndo);
 redoButton.addEventListener('click', handleRedo);
 
-// Initialize with default state
-renderCurrentHistoryState();
+// --- Initialization ---
+function initializeApp() {
+    const savedApiKey = localStorage.getItem('gemini-api-key') || DEFAULT_API_KEY;
+    initializeAndSaveApiKey(savedApiKey);
+    renderCurrentHistoryState();
+}
+
+initializeApp();

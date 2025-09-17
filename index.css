@@ -374,6 +374,27 @@ button:disabled {
     padding: 10px 20px;
 }
 
+.api-key-section {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.api-key-section input {
+    flex-grow: 1;
+    background-color: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 1rem;
+    color: #e0e0e0;
+}
+
+.api-key-section button {
+    margin-top: 0;
+    width: auto; /* override default button width */
+}
+
 
 @media (max-width: 900px) {
     .main-container {
