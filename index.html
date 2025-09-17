@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình chỉnh sửa ảnh và video AI</title>
+    <link rel="stylesheet" href="index.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.sh/@google/genai@1.0.0"
+        }
+      }
+    </script>
+</head>
+<body>
+    <header>
+      <h1>Trình chỉnh sửa ảnh và video AI</h1>
+      <p>Tải ảnh lên, chỉnh sửa bằng AI, sau đó tạo video từ kết quả.</p>
+    </header>
+    <main class="main-container">
+        <div class="controls">
+            <h2>1. Tải ảnh của bạn</h2>
+            <div id="upload-box">
+                <div id="image-preview-container"></div>
+                <div id="upload-placeholder">
+                    <p>Kéo và thả hoặc nhấp để tải ảnh lên (có thể chọn nhiều ảnh)</p>
+                </div>
+            </div>
+            <input type="file" id="file-input" accept="image/*" hidden multiple>
+            <button id="upload-button">Chọn ảnh</button>
+
+            <h2>2. Mô tả thay đổi</h2>
+            <textarea id="prompt-input" placeholder="Ví dụ: thêm một con mèo vào ảnh, hoặc thay đổi nền thành bãi biển vào ban đêm...">Mở rộng ảnh này thành khung hình 9:16.</textarea>
+            
+            <button id="generate-button" disabled>Tạo ảnh</button>
+        </div>
+        <div class="results">
+            <h2>Kết quả</h2>
+            <div id="result-gallery">
+                <p class="info-message">Kết quả sẽ được hiển thị ở đây.</p>
+            </div>
+            
+            <div id="video-generation-section" class="hidden">
+                <h2>3. Tạo video từ ảnh đã chọn</h2>
+                <textarea id="video-prompt-input" placeholder="Ví dụ: tạo hiệu ứng zoom chậm, làm cho các đám mây di chuyển..."></textarea>
+                <button id="generate-video-button">Tạo video với Veo</button>
+            </div>
+
+            <div id="video-result-container">
+                <!-- Video result will be inserted here -->
+            </div>
+        </div>
+    </main>
+    <script type="module" src="index.tsx"></script>
+</body>
+</html>
