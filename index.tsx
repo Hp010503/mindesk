@@ -36,9 +36,14 @@ const modalCloseButton = imageModal.querySelector('.modal-close') as HTMLSpanEle
 const modalActionsContainer = document.getElementById('modal-actions') as HTMLDivElement;
 const modalDimensions = document.getElementById('modal-dimensions') as HTMLParagraphElement;
 
-
 type ImageData = { mimeType: string; data: string; };
-type GeneratedImageData = ImageData & { url: string; width: number; height: number; };
+type GeneratedImageData = ImageData & {
+  url: string;
+  width: number;
+  height: number;
+  sourceIndex: number;
+  versionIndex: number;
+};
 
 let currentImages: ImageData[] = [];
 let objectImage: ImageData | null = null;
@@ -79,6 +84,12 @@ function createResultItem(imageData: GeneratedImageData, index: number): HTMLEle
     img.alt = promptInput.value;
     img.addEventListener('click', () => openImagePreview(imageData, index));
     
+    const sourceLabel = document.createElement('p');
+    sourceLabel.className = 'source-label';
+    if (imageData.sourceIndex !== undefined && imageData.versionIndex !== undefined) {
+      sourceLabel.textContent = `Bản phôi ${imageData.versionIndex + 1} / Ảnh gốc ${imageData.sourceIndex + 1}`;
+    }
+
     const dimensionsText = document.createElement('p');
     dimensionsText.className = 'image-dimensions';
     dimensionsText.textContent = `${imageData.width} x ${imageData.height}`;
@@ -105,6 +116,7 @@ function createResultItem(imageData: GeneratedImageData, index: number): HTMLEle
     actionsContainer.appendChild(resizeBtn);
     
     resultItem.appendChild(img);
+    resultItem.appendChild(sourceLabel);
     resultItem.appendChild(dimensionsText);
     resultItem.appendChild(actionsContainer);
     
@@ -354,7 +366,7 @@ function getImageDimensions(url: string): Promise<{ width: number; height: numbe
 async function generateImageWithRetries(
     modelParams: any,
     context: { functionName: string; description: string }
-): Promise<GeneratedImageData | null> {
+): Promise<(ImageData & { url: string; width: number; height: number; }) | null> {
     
     let attempt = 0;
     const maxAttempts = 3;
@@ -495,8 +507,13 @@ async function processImages(prompt: string) {
         jobsCompleted++;
         if (generatedImage) {
             successCount++;
-            newGeneratedImages.push(generatedImage);
-            const resultItem = createResultItem(generatedImage, newGeneratedImages.length - 1);
+            const completeGeneratedImage: GeneratedImageData = {
+                ...generatedImage,
+                sourceIndex: i,
+                versionIndex: j,
+            };
+            newGeneratedImages.push(completeGeneratedImage);
+            const resultItem = createResultItem(completeGeneratedImage, newGeneratedImages.length - 1);
             resultGallery.appendChild(resultItem);
         }
         updateProgress();
@@ -562,9 +579,16 @@ async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElemen
         });
 
         if (newImageData) {
-            // Create a new history state with the updated image
             const newHistoryState = [...history[historyIndex]];
-            newHistoryState[imageIndex] = newImageData;
+            const originalImageInfo = newHistoryState[imageIndex];
+            
+            const completeNewImageData: GeneratedImageData = {
+                ...newImageData,
+                sourceIndex: originalImageInfo.sourceIndex,
+                versionIndex: originalImageInfo.versionIndex,
+            };
+
+            newHistoryState[imageIndex] = completeNewImageData;
             addHistoryState(newHistoryState);
         } else {
             throw new Error("Mô hình không trả về ảnh được làm nét sau nhiều lần thử.");
@@ -717,7 +741,15 @@ async function performResize(imageData: GeneratedImageData, element: HTMLElement
 
         if (newImageData) {
             const newHistoryState = [...history[historyIndex]];
-            newHistoryState[index] = newImageData;
+            const originalImageInfo = newHistoryState[index];
+
+            const completeNewImageData: GeneratedImageData = {
+                ...newImageData,
+                sourceIndex: originalImageInfo.sourceIndex,
+                versionIndex: originalImageInfo.versionIndex,
+            };
+
+            newHistoryState[index] = completeNewImageData;
             addHistoryState(newHistoryState);
         } else {
             throw new Error("Mô hình không trả về ảnh sau khi sửa kích thước.");
@@ -736,7 +768,6 @@ async function performResize(imageData: GeneratedImageData, element: HTMLElement
         updateHistoryButtons();
     }
 }
-
 
 // --- History and General Event Listeners ---
 
@@ -763,6 +794,17 @@ generateButton.addEventListener('click', async () => {
 });
 undoButton.addEventListener('click', handleUndo);
 redoButton.addEventListener('click', handleRedo);
+
+// --- Collapsible Sections Logic ---
+document.querySelectorAll('.collapsible-header').forEach(header => {
+    header.addEventListener('click', () => {
+        header.classList.toggle('active');
+        const content = header.nextElementSibling as HTMLElement;
+        if (content && content.classList.contains('collapsible-content')) {
+            content.classList.toggle('collapsed');
+        }
+    });
+});
 
 // Initialize with default state
 renderCurrentHistoryState();

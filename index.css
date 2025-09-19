@@ -24,6 +24,10 @@ h2 {
     margin-top: 1.5rem;
 }
 
+.control-section:first-child h2 {
+    margin-top: 0;
+}
+
 p {
   color: #a0a0a0;
 }
@@ -322,10 +326,19 @@ button:disabled {
     cursor: pointer; /* Indicate clickable */
 }
 
+.source-label {
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #e0e0e0;
+    margin: 0.5rem 0 0.1rem 0;
+    text-align: center;
+    width: 100%;
+}
+
 .image-dimensions {
     font-size: 0.8rem;
     color: #aaa;
-    margin: 0.25rem 0 0.5rem 0; /* top, right, bottom, left */
+    margin: 0.1rem 0 0.5rem 0;
     text-align: center;
     width: 100%;
 }
@@ -488,9 +501,13 @@ button:disabled {
     color: #fff;
 }
 
+#modal-image-wrapper {
+    line-height: 0; /* Fix for extra space below img */
+}
+
 #modal-image {
     max-width: 100%;
-    max-height: calc(90vh - 120px); /* Leave space for actions */
+    max-height: calc(90vh - 120px); /* Adjusted for removed controls */
     object-fit: contain;
     border-radius: 8px;
 }
@@ -548,6 +565,32 @@ progress::-moz-progress-bar {
     background-color: #bb86fc;
     border-radius: 5px;
     transition: width 0.3s ease;
+}
+
+/* Collapsible Section Styles */
+.collapsible-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.collapsible-header .caret-icon {
+    transition: transform 0.3s ease;
+    stroke: #bb86fc;
+}
+
+.collapsible-header:not(.active) .caret-icon {
+    transform: rotate(-90deg);
+}
+
+.collapsible-content {
+    padding-top: 1rem;
+}
+
+.collapsible-content.collapsed {
+    display: none;
 }
 
 
