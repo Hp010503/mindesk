@@ -23,6 +23,7 @@ const objectUploadPlaceholder = document.getElementById('object-upload-placehold
 
 // Controls and results
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
+const versionCountInput = document.getElementById('version-count') as HTMLInputElement;
 const generateButton = document.getElementById('generate-button') as HTMLButtonElement;
 const resultGallery = document.getElementById('result-gallery') as HTMLDivElement;
 const undoButton = document.getElementById('undo-button') as HTMLButtonElement;
@@ -49,8 +50,10 @@ let isActionInProgress = false;
 
 function showLoading(container: HTMLElement, message: string) {
   container.innerHTML = `
-    <div class="spinner" aria-hidden="true"></div>
-    <p class="loading-message" aria-live="polite">${message}</p>
+    <div class="loading-indicator">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="loading-message" aria-live="polite">${message}</p>
+    </div>
   `;
 }
 
@@ -67,6 +70,47 @@ function updateHistoryButtons() {
     redoButton.disabled = historyIndex >= history.length - 1;
 }
 
+function createResultItem(imageData: GeneratedImageData, index: number): HTMLElement {
+    const resultItem = document.createElement('div');
+    resultItem.className = 'result-item';
+
+    const img = new Image();
+    img.src = imageData.url;
+    img.alt = promptInput.value;
+    img.addEventListener('click', () => openImagePreview(imageData, index));
+    
+    const dimensionsText = document.createElement('p');
+    dimensionsText.className = 'image-dimensions';
+    dimensionsText.textContent = `${imageData.width} x ${imageData.height}`;
+
+    const actionsContainer = document.createElement('div');
+    actionsContainer.className = 'result-item-actions';
+
+    const downloadButton = document.createElement('button');
+    downloadButton.textContent = 'Tải xuống';
+    downloadButton.addEventListener('click', () => downloadImage(imageData));
+
+    const sharpenBtn = document.createElement('button');
+    sharpenBtn.textContent = 'Xóa mờ';
+    sharpenBtn.className = 'secondary-button';
+    sharpenBtn.addEventListener('click', () => sharpenImage(imageData, resultItem, index));
+
+    const resizeBtn = document.createElement('button');
+    resizeBtn.textContent = 'Sửa kích thước';
+    resizeBtn.className = 'tertiary-button';
+    resizeBtn.addEventListener('click', () => toggleResizeControls(imageData, resultItem, index));
+
+    actionsContainer.appendChild(downloadButton);
+    actionsContainer.appendChild(sharpenBtn);
+    actionsContainer.appendChild(resizeBtn);
+    
+    resultItem.appendChild(img);
+    resultItem.appendChild(dimensionsText);
+    resultItem.appendChild(actionsContainer);
+    
+    return resultItem;
+}
+
 function renderCurrentHistoryState() {
     const currentResults = history[historyIndex];
     clearContainer(resultGallery);
@@ -75,42 +119,7 @@ function renderCurrentHistoryState() {
         clearContainer(resultGallery, 'Kết quả sẽ được hiển thị ở đây.');
     } else {
          currentResults.forEach((imageData, index) => {
-            const resultItem = document.createElement('div');
-            resultItem.className = 'result-item';
-
-            const img = new Image();
-            img.src = imageData.url;
-            img.alt = promptInput.value;
-            img.addEventListener('click', () => openImagePreview(imageData, index));
-            
-            const dimensionsText = document.createElement('p');
-            dimensionsText.className = 'image-dimensions';
-            dimensionsText.textContent = `${imageData.width} x ${imageData.height}`;
-
-            const actionsContainer = document.createElement('div');
-            actionsContainer.className = 'result-item-actions';
-
-            const downloadButton = document.createElement('button');
-            downloadButton.textContent = 'Tải xuống';
-            downloadButton.addEventListener('click', () => downloadImage(imageData));
-
-            const sharpenBtn = document.createElement('button');
-            sharpenBtn.textContent = 'Xóa mờ';
-            sharpenBtn.className = 'secondary-button';
-            sharpenBtn.addEventListener('click', () => sharpenImage(imageData, resultItem, index));
-
-            const resizeBtn = document.createElement('button');
-            resizeBtn.textContent = 'Sửa kích thước';
-            resizeBtn.className = 'tertiary-button';
-            resizeBtn.addEventListener('click', () => toggleResizeControls(imageData, resultItem, index));
-
-            actionsContainer.appendChild(downloadButton);
-            actionsContainer.appendChild(sharpenBtn);
-            actionsContainer.appendChild(resizeBtn);
-            
-            resultItem.appendChild(img);
-            resultItem.appendChild(dimensionsText);
-            resultItem.appendChild(actionsContainer);
+            const resultItem = createResultItem(imageData, index);
             resultGallery.appendChild(resultItem);
         });
     }
@@ -214,12 +223,39 @@ fileInput.addEventListener('change', async (event) => {
     const results = await Promise.all(filePromises);
     currentImages = results.map(r => ({ mimeType: r.file.type, data: r.base64Data }));
     
-    results.forEach(result => {
+    currentImages.forEach(imageData => {
+        const previewWrapper = document.createElement('div');
+        previewWrapper.className = 'preview-wrapper';
+
         const img = document.createElement('img');
-        img.src = `data:${result.file.type};base64,${result.base64Data}`;
+        img.src = `data:${imageData.mimeType};base64,${imageData.data}`;
         img.classList.add('preview-image');
-        img.alt = `Xem trước ${result.file.name}`;
-        imagePreviewContainer.appendChild(img);
+        img.alt = `Xem trước`;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.innerHTML = '&times;';
+        deleteBtn.setAttribute('aria-label', 'Xóa ảnh');
+
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            const indexToRemove = currentImages.indexOf(imageData);
+            if (indexToRemove > -1) {
+                currentImages.splice(indexToRemove, 1);
+            }
+            
+            previewWrapper.remove();
+
+            if (currentImages.length === 0) {
+                uploadPlaceholder.classList.remove('hidden');
+                generateButton.disabled = true;
+            }
+        });
+
+        previewWrapper.appendChild(img);
+        previewWrapper.appendChild(deleteBtn);
+        imagePreviewContainer.appendChild(previewWrapper);
     });
 
     if (currentImages.length > 0) {
@@ -254,11 +290,31 @@ objectFileInput.addEventListener('change', (event) => {
         objectImage = { mimeType: file.type, data: base64Data };
 
         objectPreviewContainer.innerHTML = '';
+        
+        const previewWrapper = document.createElement('div');
+        previewWrapper.className = 'preview-wrapper';
+
         const img = document.createElement('img');
         img.src = `data:${file.type};base64,${base64Data}`;
         img.classList.add('preview-image');
         img.alt = `Xem trước ${file.name}`;
-        objectPreviewContainer.appendChild(img);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.innerHTML = '&times;';
+        deleteBtn.setAttribute('aria-label', 'Xóa ảnh');
+        
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            objectImage = null;
+            objectPreviewContainer.innerHTML = '';
+            objectUploadPlaceholder.classList.remove('hidden');
+        });
+
+        previewWrapper.appendChild(img);
+        previewWrapper.appendChild(deleteBtn);
+        objectPreviewContainer.appendChild(previewWrapper);
+
         objectUploadPlaceholder.classList.add('hidden');
     };
     reader.onerror = () => {
@@ -288,37 +344,83 @@ function getImageDimensions(url: string): Promise<{ width: number; height: numbe
 // --- Core Image Processing Functions ---
 
 /**
- * A wrapper function to retry an async function on transient server errors.
- * @param fn The async function to execute.
- * @param maxRetries The maximum number of retries.
- * @param initialDelay The initial delay in ms, which doubles on each retry.
- * @returns The result of the async function.
+ * Generates an image using the Gemini API with a robust retry mechanism.
+ * Uses exponential backoff for rate limit errors (429).
+ * @param modelParams The parameters for the `generateContent` call.
+ * @param context A context object for improved logging.
+ * @returns The generated image data or null if all attempts fail.
+ * @throws An error with message 'RATE_LIMIT' if all retries fail due to rate limiting.
  */
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 1000): Promise<T> {
-  let attempt = 0;
-  let delay = initialDelay;
+async function generateImageWithRetries(
+    modelParams: any,
+    context: { functionName: string; description: string }
+): Promise<GeneratedImageData | null> {
+    
+    let attempt = 0;
+    const maxAttempts = 3;
 
-  while (attempt < maxRetries) {
-    try {
-      return await fn(); // Attempt the function
-    } catch (error) {
-      attempt++;
-      const errorMessage = (error as Error).message.toLowerCase();
-      // Check for 5xx server errors, which are often transient.
-      const isServerError = errorMessage.includes('status: 50') || errorMessage.includes('internal error');
+    while (attempt < maxAttempts) {
+        try {
+            if (attempt > 0) {
+                 console.log(`Retrying ${context.functionName} for "${context.description}" (attempt ${attempt + 1}/${maxAttempts})...`);
+            }
 
-      if (isServerError && attempt < maxRetries) {
-        console.warn(`Attempt ${attempt} failed with a server error. Retrying in ${delay}ms...`, error);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
-      } else {
-        // If it's not a server error, or we've run out of retries, re-throw the original error.
-        throw error;
-      }
+            const response = await ai.models.generateContent(modelParams);
+
+            if (response.promptFeedback?.blockReason) {
+                console.error(`Prompt was blocked during ${context.functionName} for "${context.description}":`, response.promptFeedback);
+                return null; // Non-retriable error.
+            }
+
+            const candidate = response.candidates?.[0];
+            const imagePartResponse = candidate?.content?.parts?.find(p => p.inlineData);
+
+            if (imagePartResponse?.inlineData) {
+                const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
+                const { width, height } = await getImageDimensions(url);
+                return {
+                    mimeType: imagePartResponse.inlineData.mimeType,
+                    data: imagePartResponse.inlineData.data,
+                    url,
+                    width,
+                    height,
+                };
+            } else {
+                // This is a retriable failure. Throw an error to trigger the catch block.
+                const textPartResponse = candidate?.content?.parts?.find(p => p.text);
+                const errorMessage = `No image content returned during ${context.functionName} for "${context.description}".`;
+                console.warn(`Attempt ${attempt + 1} failed: ${errorMessage}. Full candidate:`, JSON.stringify(candidate, null, 2));
+                if (textPartResponse) {
+                    console.warn(`Model text response: "${textPartResponse.text}"`);
+                }
+                throw new Error("NO_IMAGE_CONTENT");
+            }
+        } catch (error: any) {
+            console.error(`An error occurred during attempt ${attempt + 1} for ${context.functionName} ("${context.description}"):`, error);
+            
+            if (attempt + 1 >= maxAttempts) {
+                console.error(`Final attempt failed for "${context.description}".`);
+                if (error.toString().includes('RESOURCE_EXHAUSTED')) {
+                    throw new Error('RATE_LIMIT');
+                }
+                break; // Exit loop, will return null below
+            }
+
+            // Determine delay before next retry
+            let delay = 1000 * (attempt + 1); // Default linear backoff for general errors
+            if (error.toString().includes('RESOURCE_EXHAUSTED')) {
+                // Exponential backoff for rate limit errors
+                delay = (2 ** attempt) * 1000 + Math.floor(Math.random() * 1000);
+                console.warn(`Rate limit hit. Waiting ${Math.round(delay/1000)}s before next attempt.`);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        attempt++;
     }
-  }
-  // This line should be theoretically unreachable but is required by TypeScript.
-  throw new Error("Retry mechanism failed unexpectedly.");
+
+    console.error(`Failed to generate image for "${context.description}" after ${maxAttempts} attempts.`);
+    return null;
 }
 
 
@@ -332,24 +434,45 @@ async function processImages(prompt: string) {
     return;
   }
 
+  const versionCount = Math.max(1, Math.min(4, parseInt(versionCountInput.value, 10) || 1));
+
   generateButton.disabled = true;
   undoButton.disabled = true;
   redoButton.disabled = true;
   clearContainer(resultGallery);
   
-  const statusMessage = document.createElement('p');
-  statusMessage.className = 'info-message';
-  resultGallery.appendChild(statusMessage);
+  const totalJobs = currentImages.length * versionCount;
+  let jobsCompleted = 0;
+  let successCount = 0;
 
-  const generatedImages: GeneratedImageData[] = [];
+  const progressTracker = document.createElement('div');
+  progressTracker.className = 'progress-tracker';
+  resultGallery.appendChild(progressTracker);
+
+  const progressBar = document.createElement('progress') as HTMLProgressElement;
+  progressBar.max = totalJobs;
+  progressBar.value = 0;
+  
+  const progressText = document.createElement('p');
+  progressText.className = 'info-message';
+  
+  const updateProgress = () => {
+      progressBar.value = jobsCompleted;
+      progressText.textContent = `Đã tạo ${successCount}/${jobsCompleted} ảnh (Tổng cộng ${totalJobs})...`;
+  };
+  
+  progressTracker.appendChild(progressText);
+  progressTracker.appendChild(progressBar);
+  updateProgress();
+
+  const newGeneratedImages: GeneratedImageData[] = [];
   const finalPrompt = `${prompt}, chất lượng 2K.`;
 
   try {
     for (let i = 0; i < currentImages.length; i++) {
       const image = currentImages[i];
-      statusMessage.textContent = `Đang xử lý ảnh ${i + 1} trên ${currentImages.length}...`;
       
-      try {
+      for (let j = 0; j < versionCount; j++) {
         const parts: ( {text: string} | {inlineData: {mimeType: string, data: string}} )[] = [
             { inlineData: { mimeType: image.mimeType, data: image.data } }
         ];
@@ -358,54 +481,53 @@ async function processImages(prompt: string) {
         }
         parts.push({ text: finalPrompt });
 
-        const response = await withRetry(() => ai.models.generateContent({
+        const modelParams = {
             model: 'gemini-2.5-flash-image-preview',
             contents: { parts: parts },
             config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-        }));
+        };
 
-        if (response.promptFeedback?.blockReason) {
-            console.error(`Prompt was blocked for image ${i + 1}:`, response.promptFeedback);
-            continue; 
-        }
-
-        const candidate = response.candidates?.[0];
-        if (!candidate) {
-            console.error(`No candidates returned for image ${i + 1}:`, response);
-            continue;
-        }
+        const generatedImage = await generateImageWithRetries(modelParams, {
+            functionName: 'processImages',
+            description: `image ${i + 1}, version ${j + 1}`
+        });
         
-        const imagePartResponse = candidate.content?.parts?.find(p => p.inlineData);
-
-        if (imagePartResponse?.inlineData) {
-            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
-            const { width, height } = await getImageDimensions(url);
-            const imageData: GeneratedImageData = {
-                mimeType: imagePartResponse.inlineData.mimeType,
-                data: imagePartResponse.inlineData.data,
-                url,
-                width,
-                height,
-            };
-            generatedImages.push(imageData);
-        } else {
-             console.error(`No image content returned for image ${i + 1}. Full candidate:`, candidate);
+        jobsCompleted++;
+        if (generatedImage) {
+            successCount++;
+            newGeneratedImages.push(generatedImage);
+            const resultItem = createResultItem(generatedImage, newGeneratedImages.length - 1);
+            resultGallery.appendChild(resultItem);
         }
-      } catch (innerError) {
-          console.error(`Error generating image ${i + 1} after retries:`, innerError);
+        updateProgress();
       }
     }
+    
+    progressTracker.remove();
 
-    if (generatedImages.length > 0) {
-        addHistoryState(generatedImages);
+    if (newGeneratedImages.length > 0) {
+        history = history.slice(0, historyIndex + 1);
+        history.push(newGeneratedImages);
+        historyIndex++;
+
+        if (newGeneratedImages.length < totalJobs) {
+            const warningMessage = document.createElement('p');
+            warningMessage.className = 'warning-message';
+            warningMessage.textContent = `Đã tạo ${newGeneratedImages.length}/${totalJobs} ảnh. Một số yêu cầu có thể đã bị chặn hoặc không thành công. Vui lòng kiểm tra console để biết chi tiết.`;
+            resultGallery.prepend(warningMessage);
+        }
     } else {
         showError(resultGallery, 'Không thể tạo bất kỳ hình ảnh nào. Mô hình có thể không trả về hình ảnh cho chỉ dẫn này hoặc yêu cầu đã bị chặn.');
-        renderCurrentHistoryState(); // show previous state if generation fails
     }
-  } catch (error) {
-    console.error("Error in image generation loop:", error);
-    showError(resultGallery, 'Đã xảy ra lỗi không mong muốn. Vui lòng kiểm tra console.');
+  } catch (error: any) {
+    if (error.message === 'RATE_LIMIT') {
+        showError(resultGallery, 'Dịch vụ hiện đang bận (đã đạt đến giới hạn tỷ lệ). Vui lòng đợi một lát và thử lại.');
+    } else {
+        console.error("Error in image generation loop:", error);
+        showError(resultGallery, 'Đã xảy ra lỗi không mong muốn. Vui lòng kiểm tra console.');
+    }
   } finally {
+    progressTracker.remove();
     generateButton.disabled = false;
     updateHistoryButtons();
     isActionInProgress = false;
@@ -428,52 +550,33 @@ async function sharpenImage(imageToSharpen: GeneratedImageData, resultItemElemen
         const imagePart = { inlineData: { mimeType: imageToSharpen.mimeType, data: imageToSharpen.data } };
         const textPart = { text: sharpenPrompt };
         
-        const response = await withRetry(() => ai.models.generateContent({
+        const modelParams = {
             model: 'gemini-2.5-flash-image-preview',
             contents: { parts: [imagePart, textPart] },
             config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-        }));
+        };
 
-        if (response.promptFeedback?.blockReason) {
-            console.error("Prompt was blocked during sharpening:", response.promptFeedback);
-            throw new Error(`Yêu cầu làm nét ảnh đã bị chặn: ${response.promptFeedback.blockReason}`);
-        }
+        const newImageData = await generateImageWithRetries(modelParams, {
+            functionName: 'sharpenImage',
+            description: `image index ${imageIndex}`
+        });
 
-        const candidate = response.candidates?.[0];
-        if (!candidate) {
-            console.error("No candidates returned from the model during sharpening:", response);
-            throw new Error("Mô hình không trả về kết quả hợp lệ khi làm nét.");
-        }
-
-        const imagePartResponse = candidate.content?.parts?.find(p => p.inlineData);
-        if (imagePartResponse?.inlineData) {
-            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
-            const { width, height } = await getImageDimensions(url);
-            const newImageData: GeneratedImageData = {
-                mimeType: imagePartResponse.inlineData.mimeType,
-                data: imagePartResponse.inlineData.data,
-                url,
-                width,
-                height,
-            };
+        if (newImageData) {
             // Create a new history state with the updated image
             const newHistoryState = [...history[historyIndex]];
             newHistoryState[imageIndex] = newImageData;
             addHistoryState(newHistoryState);
         } else {
-            const textPartResponse = candidate.content?.parts?.find(p => p.text);
-            console.error("Model did not return a sharpened image. Full response candidate:", candidate);
-            if (textPartResponse) {
-                console.error("Model text response:", textPartResponse.text);
-                throw new Error(`Mô hình không trả về ảnh. Phản hồi văn bản: "${textPartResponse.text}"`);
-            } else {
-                throw new Error("Mô hình không trả về ảnh được làm nét.");
-            }
+            throw new Error("Mô hình không trả về ảnh được làm nét sau nhiều lần thử.");
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error sharpening image:", error);
         resultItemElement.innerHTML = originalContent; // Restore original content
-        alert(`Không thể làm nét ảnh sau nhiều lần thử: ${error.message}`);
+        if (error.message === 'RATE_LIMIT') {
+            alert('Không thể làm nét ảnh: Dịch vụ hiện đang bận. Vui lòng đợi và thử lại.');
+        } else {
+            alert(`Không thể làm nét ảnh: ${error.message}`);
+        }
     } finally {
         generateButton.disabled = false;
         updateHistoryButtons();
@@ -601,38 +704,32 @@ async function performResize(imageData: GeneratedImageData, element: HTMLElement
         const imagePart = { inlineData: { mimeType: imageData.mimeType, data: imageData.data } };
         const textPart = { text: resizePrompt };
 
-        const response = await withRetry(() => ai.models.generateContent({
+        const modelParams = {
             model: 'gemini-2.5-flash-image-preview',
             contents: { parts: [imagePart, textPart] },
             config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-        }));
+        };
 
-        if (response.promptFeedback?.blockReason) {
-             throw new Error(`Yêu cầu sửa kích thước đã bị chặn: ${response.promptFeedback.blockReason}`);
-        }
-        const candidate = response.candidates?.[0];
-        const imagePartResponse = candidate?.content?.parts?.find(p => p.inlineData);
+        const newImageData = await generateImageWithRetries(modelParams, {
+            functionName: 'performResize',
+            description: `image index ${index}`
+        });
 
-        if (imagePartResponse?.inlineData) {
-            const url = `data:${imagePartResponse.inlineData.mimeType};base64,${imagePartResponse.inlineData.data}`;
-            const { width, height } = await getImageDimensions(url);
-            const newImageData: GeneratedImageData = {
-                mimeType: imagePartResponse.inlineData.mimeType,
-                data: imagePartResponse.inlineData.data,
-                url,
-                width,
-                height,
-            };
+        if (newImageData) {
             const newHistoryState = [...history[historyIndex]];
             newHistoryState[index] = newImageData;
             addHistoryState(newHistoryState);
         } else {
             throw new Error("Mô hình không trả về ảnh sau khi sửa kích thước.");
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error resizing image:", error);
         element.innerHTML = originalContent; // Restore
-        alert(`Không thể sửa kích thước ảnh sau nhiều lần thử: ${error.message}`);
+        if (error.message === 'RATE_LIMIT') {
+            alert('Không thể sửa kích thước ảnh: Dịch vụ hiện đang bận. Vui lòng đợi và thử lại.');
+        } else {
+            alert(`Không thể sửa kích thước ảnh: ${error.message}`);
+        }
     } finally {
         isActionInProgress = false;
         generateButton.disabled = false;

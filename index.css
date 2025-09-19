@@ -54,6 +54,11 @@ p {
     position: relative;
     overflow: hidden;
     background-color: #2a2a2a;
+    transition: border-color 0.3s ease;
+}
+
+#upload-box:hover, .upload-box-single:hover {
+    border-color: #bb86fc;
 }
 
 .upload-box-single {
@@ -68,7 +73,47 @@ p {
     align-items: center;
     width: 100%;
     height: 100%;
+    position: relative; /* Establish stacking context */
+    z-index: 2; /* Ensure previews are on top */
 }
+
+.preview-wrapper {
+    position: relative;
+}
+
+.delete-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background-color: rgba(18, 18, 18, 0.7);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 16px;
+    font-weight: bold;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.delete-btn:hover {
+    background-color: #cf6679;
+    color: #121212;
+}
+
+/* Ensure delete button isn't affected by global button styles */
+.preview-wrapper .delete-btn {
+    width: 22px;
+    margin-top: 0;
+}
+
 
 .preview-image {
     max-width: 100px;
@@ -85,11 +130,41 @@ p {
 
 
 #upload-placeholder, #object-upload-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
     text-align: center;
     color: #888;
     position: absolute;
-    z-index: -1;
+    padding: 1rem;
+    transition: color 0.3s ease;
+    z-index: 1; /* Place placeholder below previews */
+    pointer-events: none; /* Prevent placeholder from capturing clicks */
 }
+
+#upload-box:hover #upload-placeholder,
+.upload-box-single:hover #object-upload-placeholder {
+    color: #bb86fc;
+}
+
+#upload-placeholder p, #object-upload-placeholder p {
+    margin: 0;
+    font-size: 1rem;
+}
+
+#upload-placeholder .placeholder-subtext, 
+#object-upload-placeholder .placeholder-subtext {
+    font-size: 0.8rem;
+    color: #666;
+}
+
+#upload-placeholder svg, #object-upload-placeholder svg {
+    stroke: currentColor;
+    margin-bottom: 0.5rem;
+}
+
 
 textarea#prompt-input {
     width: 100%;
@@ -103,6 +178,28 @@ textarea#prompt-input {
     color: #e0e0e0;
     resize: vertical;
     margin-top: 0.5rem;
+}
+
+.form-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.form-group label {
+    font-size: 1rem;
+    color: #e0e0e0;
+}
+
+.form-group input[type="number"] {
+    background-color: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    color: #e0e0e0;
+    width: 80px;
 }
 
 button {
@@ -202,6 +299,18 @@ button:disabled {
     align-items: center;
     gap: 0.5rem;
     position: relative;
+    animation: fadeInUp 0.5s ease-out forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .result-item img {
@@ -226,7 +335,7 @@ button:disabled {
     display: none;
 }
 
-.info-message, .loading-message, .error-message {
+.info-message, .loading-message, .error-message, .warning-message {
     font-size: 1.2rem;
     color: #888;
     text-align: center;
@@ -235,6 +344,11 @@ button:disabled {
 
 .error-message {
     color: #cf6679;
+}
+
+.warning-message {
+    color: #f39c12; /* Orange for warnings */
+    margin-bottom: 1rem;
 }
 
 /* Spinner Animation */
@@ -246,6 +360,31 @@ button:disabled {
   height: 40px;
   animation: spin 1s linear infinite;
   margin: auto; /* Center spinner inside result-item */
+}
+
+.loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
 }
 
 @keyframes spin {
@@ -372,6 +511,43 @@ button:disabled {
 .modal-actions-container button {
     width: auto;
     padding: 10px 20px;
+}
+
+/* Progress Tracker */
+.progress-tracker {
+    grid-column: 1 / -1; /* Span all columns */
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.progress-tracker p {
+    margin-bottom: 0.5rem;
+}
+
+progress {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 10px;
+    border-radius: 5px;
+    border: 1px solid #444;
+}
+
+progress::-webkit-progress-bar {
+    background-color: #2a2a2a;
+    border-radius: 5px;
+}
+
+progress::-webkit-progress-value {
+    background-color: #bb86fc;
+    border-radius: 5px;
+    transition: width 0.3s ease;
+}
+
+progress::-moz-progress-bar {
+    background-color: #bb86fc;
+    border-radius: 5px;
+    transition: width 0.3s ease;
 }
 
 
